@@ -3,19 +3,20 @@
 
 ## so far covering
 
-## STRING (0.4 med conf cutoff, experimental evidence only)
-## Human cell map (BFDR threshold=0.1)
-## BioGRID
-## BioPlex Huttlin AP-MS interactomes
+## STRING v11.5 physical links network, experimental evidence only (not text mining) https://string-db.org/
+## Human cell map v1 (BFDR threshold=0.1) https://humancellmap.org/
+## BioGRID 4.4.219 https://thebiogrid.org
+## BioPlex 1.0, 2.0, & 3.0 https://bioplex.hms.harvard.edu/
 ## OpenCell https://opencell.czbiohub.org/download
-## Human reference interactome Y2H (Luck 2020 Nature)
+## Human Reference interactome http://www.interactome-atlas.org/
 ## HIPPIE v2.3 http://cbdm-01.zdv.uni-mainz.de/~mschaefer/hippie/download.php
+
 
 library(tidyverse)
 library(magrittr)
 library(HGNChelper)
 library(data.table)
-
+library(annotables)
 
 
 ################
@@ -31,7 +32,7 @@ dir.create(dat_dir,showWarnings = F)
 ######## STRING-DB ##########
 
 ## string db download
-string_file = paste0(dat_dir,"9606.protein.links.full.v11.5.txt")
+string_file = paste0(dat_dir,"9606.protein.physical.links.full.v11.5.txt")
 prot_info_file = paste0(dat_dir,"9606.protein.info.v11.5.txt")
 prot_seqs_file = paste0(dat_dir, "9606.protein.sequences.v11.5.fa")
 
@@ -50,11 +51,11 @@ huttlin_file4 = paste0(dat_dir,"BioPlex_293T_Network_10K_Dec_2019.tsv")
 ######## BIOGRID ##########
 
 ## load the full bioGRID database
-grid_file = paste0(dat_dir,"BIOGRID-ALL-4.4.213.tab3.txt")
+grid_file = paste0(dat_dir,"BIOGRID-ALL-4.4.219.tab3.txt")
 
 # load the preanalyzed data as analyzing takes ages and has already been done
 ## data saved as Rds
-grid_dat_file = paste0(dat_dir,"BioGrid_table_hgnc_compliant.Rds")
+grid_dat_file = paste0(dat_dir,"Biogrid_4.4.219_precleaned.Rds")
 
 
 
@@ -109,6 +110,10 @@ dir.create(out_dir,showWarnings = F)
 #################################################################################
 
 
+## how many 
+
+
+
 
 
 ###################################
@@ -120,22 +125,26 @@ dir.create(out_dir,showWarnings = F)
 # bioplex 1
 a = read_tsv(huttlin_file1) %>%
   dplyr::select(`Symbol A`,`Symbol B`) %>%
-  dplyr::rename(A=`Symbol A`,B=`Symbol B`)
+  dplyr::rename(A=`Symbol A`,B=`Symbol B`) %>%
+  mutate(ref="PMID:26186194")
 
 # bioplex 2
 b = read_tsv(huttlin_file2) %>%
   dplyr::select(SymbolA,SymbolB) %>%
-  dplyr::rename(A=SymbolA,B=SymbolB)
+  dplyr::rename(A=SymbolA,B=SymbolB) %>%
+  mutate(ref="PMID:28514442")
 
 # bioplex 3
 d = read_tsv(huttlin_file3) %>%
   dplyr::select(SymbolA,SymbolB) %>%
-  dplyr::rename(A=SymbolA,B=SymbolB)
+  dplyr::rename(A=SymbolA,B=SymbolB) %>%
+  mutate(ref="PMID:33961781")
 
 # bioplex 3
 e = read_tsv(huttlin_file4) %>%
   dplyr::select(SymbolA,SymbolB) %>%
-  dplyr::rename(A=SymbolA,B=SymbolB)
+  dplyr::rename(A=SymbolA,B=SymbolB) %>%
+  mutate(ref="PMID:33961781")
 
 
 hut_dat = rbind.data.frame(a,b,d,e)
@@ -165,12 +174,18 @@ hut_dat %<>%
   separate(A, into="A_1",sep=" ///",remove=F) %>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
-  dplyr::select(A_1,B_1) %>%
+  dplyr::select(A_1,B_1,ref) %>%
   rename(A=A_1,B=B_1)
 
 # make non redundant
 hut_dat %<>%
   distinct()
+
+## add database info and experiment_type info
+hut_dat %<>%
+  mutate(ref=ref,
+         experiment_type = "IP-MS",
+         db="bioplex.hms.harvard.edu")
 
 
 ########################
@@ -256,6 +271,15 @@ histring %<>%
   distinct()
 
 
+## add database and ref info
+histring %<>%
+  mutate(ref="PMID:30476243",
+         experiment_type = "unknown",
+         db="string-db.org") %>%
+  as_tibble()
+
+
+
 ######################
 #### BIOGRID PREP ####
 ######################
@@ -282,15 +306,35 @@ histring %<>%
 ## load preanalyzed data
 grid_dat = readRDS(grid_dat_file)
 
+## save preanalyzed data
+#saveRDS(grid_dat,paste0(dat_dir,"Biogrid_4.4.219_precleaned.Rds"))
 
 ## keep just the physical evidence interactions (interactors)
 grid_dat %<>%
   filter(`Experimental System Type`=="physical")
 
+## check the different physical experiment type options
+unique(grid_dat$`Experimental System`)
+
+# rank order them
+## most are IP-MS and Y2H
+test =
+  grid_dat %>%
+  group_by(`Experimental System`) %>%
+  dplyr::count()
 
 ## tidy
 grid_dat %<>%
-  dplyr::select(A,B)
+  dplyr::select(A,B,`Experimental System`,`Publication Source`) %>%
+  rename(experiment_type=`Experimental System`,ref=`Publication Source`)
+
+## rename the experiment_types to match with the other conventions
+grid_dat %<>%
+  mutate(experiment_type=if_else(
+    experiment_type=="Affinity Capture-MS",
+    "IP-MS",
+    experiment_type
+))
 
 
 ## drop NAs
@@ -303,12 +347,20 @@ grid_dat %<>%
   separate(A, into="A_1",sep=" ///",remove=F) %>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
-  dplyr::select(A_1,B_1) %>%
+  dplyr::select(A_1,B_1,experiment_type,ref) %>%
   rename(A=A_1,B=B_1)
 
 ## only keep unique
 grid_dat %<>%
   distinct()
+
+## add database and ref info
+grid_dat %<>%
+  mutate(ref=gsub("PUBMED","PMID",ref),
+       experiment_type = experiment_type,
+       db="thebiogrid.org") %>%
+  as_tibble()
+
 
 
 
@@ -355,6 +407,12 @@ cellmap %<>%
 cellmap %<>%
   distinct()
 
+## add database and ref info
+cellmap %<>%
+  mutate(ref="PMID:34079125",
+         experiment_type = "Proximity Label-MS",
+         db="humancellmap.org") %>%
+  as_tibble()
 
 
 ########################
@@ -398,6 +456,12 @@ opencell %<>%
 opencell %<>%
   distinct()
 
+## add database and ref info
+opencell %<>%
+  mutate(ref="PMID:35271311",
+         experiment_type = "IP-MS",
+         db="opencell.czbiohub.org") %>%
+  as_tibble()
 
 
 
@@ -475,8 +539,14 @@ huri %<>%
 
 
 nrow(huri)
-# 63665 final interactions
+# 63243 final interactions
 
+## add database and ref info
+huri %<>%
+  mutate(ref="PMID:32296183",
+         experiment_type = "Two-hybrid",
+         db="interactome-atlas.org") %>%
+  as_tibble()
 
 
 #####################
@@ -550,8 +620,14 @@ hipdat %<>%
   distinct()
 
 nrow(hipdat)
-# 801698 final interactions
+# 799808 final interactions
 
+## add database and ref info
+hipdat %<>%
+  mutate(ref="PMID:27794551",
+         experiment_type = "unknown",
+         db="cbdm-01.zdv.uni-mainz.de/~mschaefer/hippie/") %>%
+  as_tibble()
 
 
 ###################################################
@@ -561,18 +637,61 @@ nrow(hipdat)
 
 ## databases loaded
 
-cellmap
-grid_dat
-histring
-hut_dat
-opencell
-huri
-hipdat
+## save a complete list of interactors where A and B does mean bait and prey
 
-# create a list and loop through to process
-# only keep unique non-redundant interactions
 
-dat_list=list(cellmap,grid_dat,histring,hut_dat,opencell,huri,hipdat)
+## now actually do the combining of the tables into one and double check to make non-redundant
+ints =
+  rbind.data.frame(cellmap,
+                   grid_dat,
+                   histring,
+                   hut_dat,
+                   opencell,
+                   huri,
+                   hipdat)
+
+
+## remove the self interactors as they are meaningless
+ints %<>%
+  filter(A!=B)
+
+### save data object of the complete interactome
+saveRDS(ints,file=paste0(dat_dir,"InteractR_interactome_full.Rds"))
+
+
+
+
+##### now interested in a NON-REDUNDANT list of interactors
+
+## where protein1-protein2 will only be considered once, and protein2-protein1 will be ignored
+
+## add dummy info to later columns to allow sorting to work to remove duplicate entries
+
+# function to add dummy column info to allow sorting
+dummycols = function(data){
+  data %<>%
+    mutate(ref=paste0("zzzzzzzzzz_",ref),
+           experiment_type = paste0("zzzzzzzzzzz_",experiment_type),
+           db=paste0("zzzzzzzzzzzz_",db))
+  return(data)
+}
+
+
+cellmap2 = dummycols(cellmap)
+grid_dat2 = dummycols(grid_dat)
+histring2 = dummycols(histring)
+hut_dat2 = dummycols(hut_dat)
+opencell2 = dummycols(opencell)
+huri2 = dummycols(huri)
+hipdat2 = dummycols(hipdat)
+
+
+# Calculate the numbers of unique non-redundant interactions in each database
+## exclude the self interactions
+# create a list of the tables and loop through to process
+## note this is just to calculate, and doesn't actually do any joining
+
+dat_list=list(cellmap2,grid_dat2,histring2,hut_dat2,opencell2,huri2,hipdat2)
 names(dat_list) = c("cellmap","biogrid","string","bioplex","opencell","huri","hippie")
 
 int_nums = tibble()
@@ -587,6 +706,9 @@ for(i in 1:length(dat_list)){
   # nrows of the redundant original list
   prefiltnum = nrow(dat)
   
+  ## remove the self interactions as that is meaningless
+  dat %<>%
+    filter(A!=B)
   
   # only keep unique non-redundant interactions
   # sort each row alphabetically
@@ -609,29 +731,29 @@ for(i in 1:length(dat_list)){
 }
 
 
-## combine tables into one and make non-redundant
-ints =
-  rbind.data.frame(cellmap,
-                 grid_dat,
-                 histring,
-                 hut_dat,
-                 opencell,
-                 huri,
-                 hipdat)
+
+### now create a non-redundant version
+## remove ref, experiment_type and database info for just non-redundant interactome count
+ints2 =
+  ints %>%
+  dplyr::select(A,B) %>%
+  distinct()
 
 
-## make unique
-ints_sort <- t(apply(ints, 1, sort))
+# only keep unique non-redundant interactions
+# sort each row alphabetically
+dat_sort <- t(apply(ints2, 1, sort))
 
 # remove duplicates
-ints_unique <- unique(ints_sort)
+dat_unique <- unique(dat_sort)
 
-ints = 
-  as.data.frame(ints_unique) %>%
+ints2 = 
+  as.data.frame(dat_unique) %>%
   tibble() %>%
   rename(A=V1,B=V2)
 
 
-
 ### save data object of the complete interactome
-saveRDS(ints,file=paste0(dat_dir,"InteractR_interactome.Rds"))
+saveRDS(ints2,file=paste0(dat_dir,"InteractR_interactome.Rds"))
+
+
