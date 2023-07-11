@@ -1,11 +1,14 @@
-## this script is for processing the published interactors databases
-## to allow searching a protein of itnerests interactome from many databases at once
+## this script is for data cleaning, harmonizing, and processing the published interactome databases
+## to allow searching for a protein of interest in the interactomrs from many databases at once
+## within the interactR shiny app
+## https://dominico.shinyapps.io/interactR/
 
-## so far covering
+## database versions included in this version 1.1 (June 28 2023)
 
-## STRING v11.5 physical links network, experimental evidence only (not text mining) https://string-db.org/
+## STRING v12 physical links network, experimental evidence only (not text mining) https://stringdb-downloads.org/download/protein.physical.links.full.v12.0/9606.protein.physical.links.full.v12.0.txt.gz (11.8 Mb). STRING now allows you to view the physical-only interaction network. The physical network will only display edges between the proteins for which we have evidence of their binding or forming a physical complex.
+## BioGRID 4.4.222 https://thebiogrid.org
+
 ## Human cell map v1 (BFDR threshold=0.1) https://humancellmap.org/
-## BioGRID 4.4.219 https://thebiogrid.org
 ## BioPlex 1.0, 2.0, & 3.0 https://bioplex.hms.harvard.edu/
 ## OpenCell https://opencell.czbiohub.org/download
 ## Human Reference interactome http://www.interactome-atlas.org/
@@ -17,6 +20,7 @@ library(magrittr)
 library(HGNChelper)
 library(data.table)
 library(annotables)
+library(Biostrings)
 
 
 ################
@@ -29,12 +33,15 @@ dat_dir = paste0(base,"data/")
 dir.create(dat_dir,showWarnings = F)
 
 
+# uniprot reviewed human proteome (downloaded within FragPipe)
+prot_file = paste0(dat_dir,"2023-04-19-decoys-reviewed-contam-UP000005640.fa")
+
+
 ######## STRING-DB ##########
 
 ## string db download
-string_file = paste0(dat_dir,"9606.protein.physical.links.full.v11.5.txt")
-prot_info_file = paste0(dat_dir,"9606.protein.info.v11.5.txt")
-prot_seqs_file = paste0(dat_dir, "9606.protein.sequences.v11.5.fa")
+string_file = paste0(dat_dir,"9606.protein.physical.links.full.v12.0.txt")
+prot_info_file = paste0(dat_dir,"9606.protein.info.v12.0.txt")
 
 
 
@@ -51,11 +58,11 @@ huttlin_file4 = paste0(dat_dir,"BioPlex_293T_Network_10K_Dec_2019.tsv")
 ######## BIOGRID ##########
 
 ## load the full bioGRID database
-grid_file = paste0(dat_dir,"BIOGRID-ALL-4.4.219.tab3.txt")
+#grid_file = paste0(dat_dir,"BIOGRID-ALL-4.4.222.tab3.txt")
 
 # load the preanalyzed data as analyzing takes ages and has already been done
 ## data saved as Rds
-grid_dat_file = paste0(dat_dir,"Biogrid_4.4.219_precleaned.Rds")
+grid_dat_file = paste0(dat_dir,"Biogrid_4.4.222_precleaned.Rds")
 
 
 
@@ -108,12 +115,6 @@ dir.create(out_dir,showWarnings = F)
 #################################################################################
 ########################### data load and prep ##################################
 #################################################################################
-
-
-## how many 
-
-
-
 
 
 ###################################
@@ -175,7 +176,7 @@ hut_dat %<>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
   dplyr::select(A_1,B_1,ref) %>%
-  rename(A=A_1,B=B_1)
+  dplyr::rename(A=A_1,B=B_1)
 
 # make non redundant
 hut_dat %<>%
@@ -208,7 +209,7 @@ prot_info = fread(prot_info_file)
 # just keep the interactions with experimental evidence
 hi =
   string_dat %>%
-  filter(experiments>400)
+  filter(experiments>700)
 
 
 ## join the two tables using dt
@@ -237,7 +238,7 @@ histring = joined
 
 # tidy
 histring %<>%
-  rename(A=protein1_name,B=protein2_name) %>%
+  dplyr::rename(A=protein1_name,B=protein2_name) %>%
   dplyr::select(A,B)
 
 ## correct hgnc_symbols
@@ -262,7 +263,7 @@ histring %<>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
   dplyr::select(A_1,B_1) %>%
-  rename(A=A_1,B=B_1)
+  dplyr::rename(A=A_1,B=B_1)
 
 
 ## only keep unique
@@ -297,17 +298,19 @@ histring %<>%
 #  HGNChelper::checkGeneSymbols(grid_dat$`Official Symbol Interactor B`,map=hgnc.table) %>%
 #  dplyr::pull(Suggested.Symbol)
 
-
 ## clean up
 #grid_dat %<>%
 #  dplyr::rename(A= `Official Symbol Interactor A`) %>%
 #  dplyr::rename(B = `Official Symbol Interactor B`) 
 
+## save preanalyzed data
+#saveRDS(grid_dat,paste0(dat_dir,"Biogrid_4.4.222_precleaned.Rds"))
+
+
+
+
 ## load preanalyzed data
 grid_dat = readRDS(grid_dat_file)
-
-## save preanalyzed data
-#saveRDS(grid_dat,paste0(dat_dir,"Biogrid_4.4.219_precleaned.Rds"))
 
 ## keep just the physical evidence interactions (interactors)
 grid_dat %<>%
@@ -326,7 +329,7 @@ test =
 ## tidy
 grid_dat %<>%
   dplyr::select(A,B,`Experimental System`,`Publication Source`) %>%
-  rename(experiment_type=`Experimental System`,ref=`Publication Source`)
+  dplyr::rename(experiment_type=`Experimental System`,ref=`Publication Source`)
 
 ## rename the experiment_types to match with the other conventions
 grid_dat %<>%
@@ -348,7 +351,7 @@ grid_dat %<>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
   dplyr::select(A_1,B_1,experiment_type,ref) %>%
-  rename(A=A_1,B=B_1)
+  dplyr::rename(A=A_1,B=B_1)
 
 ## only keep unique
 grid_dat %<>%
@@ -391,7 +394,7 @@ cellmap %<>%
 
 ## tidy
 cellmap %<>%
-  rename(A=Bait,B=PreyGene) %>%
+  dplyr::rename(A=Bait,B=PreyGene) %>%
   dplyr::select(A,B)
 
 ## for ambiguosly named (that look like eg KAT14 /// PET117)
@@ -401,7 +404,7 @@ cellmap %<>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
   dplyr::select(A_1,B_1) %>%
-  rename(A=A_1,B=B_1)
+  dplyr::rename(A=A_1,B=B_1)
 
 ## only keep unique
 cellmap %<>%
@@ -424,7 +427,7 @@ opencell = read_csv(opencell_file)
 
 ## tidy
 opencell %<>%
-  rename(A=target_gene_name,B=interactor_gene_name) %>%
+  dplyr::rename(A=target_gene_name,B=interactor_gene_name) %>%
   dplyr::select(A,B)
 
 
@@ -450,7 +453,7 @@ opencell %<>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
   dplyr::select(A_1,B_1) %>%
-  rename(A=A_1,B=B_1)
+  dplyr::rename(A=A_1,B=B_1)
 
 ## only keep unique
 opencell %<>%
@@ -513,10 +516,10 @@ pcgenes %>%
 huri %<>%
   inner_join(pcgenes,by=c("A"="ensgene")) %>%
   dplyr::select(symbol,B) %>%
-  rename(A=symbol) %>%
+  dplyr::rename(A=symbol) %>%
   inner_join(pcgenes,by=c("B"="ensgene")) %>%
   dplyr::select(A,symbol) %>%
-  rename(B=symbol)
+  dplyr::rename(B=symbol)
 
 ## drop NAs
 huri %<>%
@@ -530,7 +533,7 @@ huri %<>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
   dplyr::select(A_1,B_1) %>%
-  rename(A=A_1,B=B_1)
+  dplyr::rename(A=A_1,B=B_1)
 
 ## only keep unique
 huri %<>%
@@ -596,10 +599,10 @@ pcgenes_entrez %>%
 hipdat %<>%
   inner_join(pcgenes_entrez,by=c("entrezA"="entrez")) %>%
   dplyr::select(symbol,entrezB) %>%
-  rename(A=symbol) %>%
+  dplyr::rename(A=symbol) %>%
   inner_join(pcgenes_entrez,by=c("entrezB"="entrez")) %>%
   dplyr::select(A,symbol) %>%
-  rename(B=symbol)
+  dplyr::rename(B=symbol)
 
 ## drop NAs
 hipdat %<>%
@@ -613,7 +616,7 @@ hipdat %<>%
   separate(B, into="B_1",sep=" ///",remove=F) %>%
   #filter(grepl("///",A)|grepl("///",B)) %>%
   dplyr::select(A_1,B_1) %>%
-  rename(A=A_1,B=B_1)
+  dplyr::rename(A=A_1,B=B_1)
 
 ## only keep unique
 hipdat %<>%
@@ -655,8 +658,63 @@ ints =
 ints %<>%
   filter(A!=B)
 
+
+
+
+
+###### UNIPROT ID #######
+
+## add the uniprot IDs by using uniprot reference proteome
+
+## load uniprot human proteome
+sequences <- readAAStringSet(prot_file)
+
+# Convert to a data frame and tidy up metadata
+prot =
+  as.data.frame(sequences) %>%
+  rownames_to_column("meta") %>%
+  as_tibble() %>%
+  separate(meta,into=c( "prefix",
+                        "ID",
+                        "rest"),
+           sep="\\|") %>%
+  separate(rest, into=c(NA,"species"),sep="OX=",remove=F) %>%
+  separate(rest, into=c(NA,"Gene"),sep="GN=",remove=T) %>%
+  mutate(species=sub(" .*", "", species)) %>%
+  mutate(Gene=sub(" .*", "", Gene)) %>%
+  dplyr::rename(seq=x)
+
+
+## got this reference proteome from within fragpipe, so contains contaminants and reversered peptides
+## remove these
+prot %<>%
+  filter(prefix!="rev_sp") %>%
+  filter(species=="9606") %>%
+  dplyr::select(Gene,ID)
+
+
+## join to the main ints table
+ints %<>%
+  left_join(prot,by=c("A"="Gene")) %>%
+  dplyr::rename(A_Gene=A,A_ID=ID) %>%
+  left_join(prot,by=c("B"="Gene")) %>%
+  dplyr::rename(B_Gene=B,B_ID=ID) %>%
+  dplyr::select(A_Gene,A_ID,B_Gene,B_ID,ref,experiment_type,db)
+
+
 ### save data object of the complete interactome
+## this is the file for interactR shiny app
 saveRDS(ints,file=paste0(dat_dir,"InteractR_interactome_full.Rds"))
+
+
+
+
+###########################################
+## NOT NECESSARY PAST HERE FOR INTERACTR ##
+###########################################
+
+
+
 
 
 
@@ -720,7 +778,7 @@ for(i in 1:length(dat_list)){
   dat = 
     as.data.frame(dat_unique) %>%
     tibble() %>%
-    rename(A=V1,B=V2)
+    dplyr::rename(A=V1,B=V2)
   
   postfiltnum = nrow(dat)
   
@@ -750,7 +808,7 @@ dat_unique <- unique(dat_sort)
 ints2 = 
   as.data.frame(dat_unique) %>%
   tibble() %>%
-  rename(A=V1,B=V2)
+  dplyr::rename(A=V1,B=V2)
 
 
 ### save data object of the complete interactome
