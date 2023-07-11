@@ -1,7 +1,10 @@
 # interactR v1.1
+
+https://dominico.shinyapps.io/interactR/
+
 Tool for exploring human protein-protein interaction (interactome) databases
 
-Code is provided as a supplement to the shiny app https://dominico.shinyapps.io/interactR/
+Code is provided as a supplement to the shiny app 
 
 Different experiment types can easily be excluded to help refine interactomes
 
