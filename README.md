@@ -3,6 +3,8 @@ Tool for exploring human protein-protein interaction (interactome) databases
 
 Code is provided as a supplement to the shiny app https://dominico.shinyapps.io/interactR/
 
+Different experiment types can easily be excluded to help refine interactomes
+
 #### Updated June 28 2023
 
 ## Data from the following sources:
@@ -27,4 +29,5 @@ Code is provided as a supplement to the shiny app https://dominico.shinyapps.io/
 ---
 
 [HGNChelper 0.8.1](https://github.com/waldronlab/HGNChelper) is used to correct gene names to allow different datasets to be harmonized
+
 [annotables 0.2.0](https://github.com/stephenturner/annotables) is used to map gene IDs to gene symbols
